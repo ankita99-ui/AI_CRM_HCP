@@ -75,8 +75,8 @@ AI-CRM-HCP/
 ---
 
 # Demo
+
 ![AI CRM Demo](ai_crm_demo(1).gif)
-```
 
 ---
 

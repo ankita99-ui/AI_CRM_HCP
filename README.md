@@ -73,7 +73,7 @@ AI-CRM-HCP/
 ---
 
 ## demo
-https://github.com/username/AI-CRM-HCP/blob/main/assets/ai_crm_demo(1).gif
+https://github.com/ankita99-ui/AI-CRM-HCP/blob/main/assets/ai_crm_demo(1).gif
 
 ---
 

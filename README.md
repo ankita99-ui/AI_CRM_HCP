@@ -2,6 +2,8 @@
 
 Production-ready Life Sciences CRM module for Medical Representatives to log Healthcare Professional (HCP) interactions through both a structured form and a conversational AI assistant.
 
+---
+
 ## Highlights
 
 - Built a responsive frontend using React, TypeScript, Redux Toolkit, Tailwind CSS, and React Hook Form.
@@ -72,8 +74,21 @@ AI-CRM-HCP/
 
 ---
 
-## demo
-ai_crm_demo(1).gif
+# Demo
+
+> **If your GIF is inside the `assets` folder**
+
+```md
+![AI CRM Demo](assets/ai_crm_demo(1).gif)
+```
+
+or
+
+> **If your GIF is in the repository root (same folder as README.md)**
+
+```md
+![AI CRM Demo](ai_crm_demo(1).gif)
+```
 
 ---
 
@@ -124,10 +139,10 @@ Overall, this project is a step toward building smarter CRM solutions for the he
 3. Mark Lutz, *Learning Python* (5th Edition), O'Reilly Media, 2013.
 4. Antonio Melé, *Django 5 By Example*, Packt Publishing, 2024.
 5. Alex Martelli, Anna Ravenscroft, Steve Holden, *Python in a Nutshell* (4th Edition), O'Reilly Media, 2023.
-6. FastAPI Documentation. Available at: https://fastapi.tiangolo.com/
-7. LangGraph Documentation. Available at: https://langchain-ai.github.io/langgraph/
-8. LangChain Documentation. Available at: https://python.langchain.com/docs/
-9. Groq API Documentation. Available at: https://console.groq.com/docs
-10. React Documentation. Available at: https://react.dev/
-11. Redux Toolkit Documentation. Available at: https://redux-toolkit.js.org/
-12. PostgreSQL Documentation. Available at: https://www.postgresql.org/docs/
+6. FastAPI Documentation – https://fastapi.tiangolo.com/
+7. LangGraph Documentation – https://langchain-ai.github.io/langgraph/
+8. LangChain Documentation – https://python.langchain.com/docs/
+9. Groq API Documentation – https://console.groq.com/docs
+10. React Documentation – https://react.dev/
+11. Redux Toolkit Documentation – https://redux-toolkit.js.org/
+12. PostgreSQL Documentation – https://www.postgresql.org/docs/

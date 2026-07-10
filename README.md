@@ -75,18 +75,6 @@ AI-CRM-HCP/
 ---
 
 # Demo
-
-> **If your GIF is inside the `assets` folder**
-
-```md
-![AI CRM Demo](assets/ai_crm_demo(1).gif)
-```
-
-or
-
-> **If your GIF is in the repository root (same folder as README.md)**
-
-```md
 ![AI CRM Demo](ai_crm_demo(1).gif)
 ```
 

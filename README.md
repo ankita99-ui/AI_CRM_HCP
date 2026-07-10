@@ -75,7 +75,6 @@ AI-CRM-HCP/
 ## demo
 ![AI CRM Demo](assets/ai_crm_demo(1).gif)
 
-
 ---
 
 ## Complete Project Explanation

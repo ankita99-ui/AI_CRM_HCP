@@ -73,7 +73,7 @@ AI-CRM-HCP/
 ---
 
 ## demo
-![AI CRM Demo](assets/ai_crm_demo.gif)
+![AI CRM Demo](assets/ai_crm_demo(1).gif)
 
 
 ---

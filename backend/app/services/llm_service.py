@@ -18,6 +18,10 @@ from app.schemas.interaction import ExtractedInteraction
 
 logger = logging.getLogger(__name__)
 PLACEHOLDER_GROQ_KEYS = {'', 'your_groq_api_key', 'your_real_groq_key', 'changeme'}
+DEPRECATED_GROQ_MODELS = {
+    'gemma2-9b-it': 'llama-3.1-8b-instant',
+    'llama-3.1-70b-versatile': 'llama-3.3-70b-versatile',
+}
 MATERIAL_WORDS = {
     'brochure', 'brochures', 'leaflet', 'leaflets', 'sample', 'samples',
     'study', 'studies', 'pdf', 'material', 'materials', 'presentation', 'presentations',
@@ -29,8 +33,15 @@ class LLMService:
         self.settings = get_settings()
         self.client = None
         api_key = self.settings.groq_api_key.strip()
+        model = DEPRECATED_GROQ_MODELS.get(self.settings.groq_model, self.settings.groq_model)
+        if model != self.settings.groq_model:
+            logger.warning(
+                'Groq model %s is deprecated. Using %s instead.',
+                self.settings.groq_model,
+                model,
+            )
         if api_key and api_key not in PLACEHOLDER_GROQ_KEYS:
-            self.client = ChatGroq(api_key=api_key, model=self.settings.groq_model, temperature=0.2)
+            self.client = ChatGroq(api_key=api_key, model=model, temperature=0.2)
 
     async def stream_summary(self, conversation: str):
         extracted = self._fallback_extract(conversation)
@@ -120,11 +131,27 @@ class LLMService:
         return json.loads(content)
 
     def _extract_doctor_name(self, conversation: str) -> str:
-        stop_words = {'today', 'the', 'a', 'an', 'with', 'at', 'in', 'on', 'from', 'and', 'about', 'to', 'for', 'who', 'whom', 'regarding'}
+        stop_words = {
+            'today', 'yesterday', 'tomorrow', 'next', 'last', 'this',
+            'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
+            'the', 'a', 'an', 'with', 'at', 'in', 'on', 'from', 'and', 'about', 'to', 'for', 'who', 'whom', 'regarding',
+        }
+        name_part = r'([A-Za-z]+(?:[ \t]+[A-Za-z]+){0,2})'
+        met_patterns = [
+            rf'(?:i[ \t]+)?met[ \t]+with[ \t]+(?:dr\.?|doctor)[ \t]+{name_part}',
+            rf'(?:i[ \t]+)?met[ \t]+(?:dr\.?|doctor)[ \t]+{name_part}',
+        ]
+        met_matches: list[str] = []
+        for pattern in met_patterns:
+            for match in re.finditer(pattern, conversation, re.IGNORECASE):
+                parts = [part for part in match.group(1).split() if part.lower() not in stop_words]
+                if parts:
+                    met_matches.append(' '.join(part.title() for part in parts[:3]))
+        if met_matches:
+            return f'Dr. {met_matches[-1]}'
+
         patterns = [
-            r'(?:dr\.?|doctor)\s+([A-Za-z]+(?:\s+[A-Za-z]+){0,2})',
-            r'met\s+with\s+(?:dr\.?|doctor)\s+([A-Za-z]+(?:\s+[A-Za-z]+){0,2})',
-            r'met\s+(?:dr\.?|doctor)\s+([A-Za-z]+(?:\s+[A-Za-z]+){0,2})',
+            rf'(?:dr\.?|doctor)[ \t]+{name_part}',
         ]
         for pattern in patterns:
             match = re.search(pattern, conversation, re.IGNORECASE)

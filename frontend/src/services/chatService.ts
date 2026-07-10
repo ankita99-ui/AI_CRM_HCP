@@ -1,10 +1,12 @@
 import { api } from './api';
-import { ChatMessage, ChatResponse } from '../types';
+import { ChatMessage, ChatResponse, ExtractedInteraction } from '../types';
 
 type ChatPayload = {
   content: string;
   history?: Array<Pick<ChatMessage, 'role' | 'content'>>;
   save?: boolean;
+  draft?: ExtractedInteraction | null;
+  interaction_id?: number | null;
 };
 
 export const chatService = {
@@ -13,14 +15,15 @@ export const chatService = {
     return data;
   },
   async stream(payload: ChatPayload, onToken: (token: string) => void): Promise<ChatResponse> {
-    const response = await fetch(`${import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'}/api/chat/stream`, {
+    const apiBase = import.meta.env.VITE_API_BASE_URL ?? `${window.location.protocol}//${window.location.hostname}:8001`;
+    const response = await fetch(`${apiBase}/api/chat/stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
 
     if (!response.ok || !response.body) {
-      let message = 'Streaming request failed';
+      let message = 'Chat failed. Run start.bat and keep the backend window open (http://localhost:8001).';
       try {
         const errorBody = await response.json() as { detail?: string | Array<{ msg?: string }> };
         if (Array.isArray(errorBody.detail)) {

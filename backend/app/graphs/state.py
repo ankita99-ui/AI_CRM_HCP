@@ -23,4 +23,5 @@ class InteractionGraphState(TypedDict, total=False):
     hcp_results: list[dict]
     email_draft: dict | None
     interaction_id: int | None
+    current_extracted: ExtractedInteraction | dict | None
     tools_used: list[str]

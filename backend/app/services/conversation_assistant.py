@@ -242,13 +242,31 @@ class ConversationAssistantService:
             'Does this look correct? Reply **yes** to log the interaction.'
         )
 
+    def _is_edit_meta_message(self, content: str) -> bool:
+        normalized = content.lower().strip()
+        patterns = (
+            r'^change the follow[- ]?up date\b',
+            r'^change follow[- ]?up date\b',
+            r'^change the name\b',
+            r'^change name\b',
+            r'^correct the name\b',
+            r'^why dr\b',
+            r'^not dr\b',
+            r'^wrong doctor\b',
+        )
+        return any(re.search(pattern, normalized) for pattern in patterns)
+
     def _build_discussion_notes(self, conversation: str) -> str:
         user_lines = [
             line.removeprefix('User:').strip()
             for line in conversation.splitlines()
             if line.startswith('User:')
         ]
-        meaningful = [line for line in user_lines if not self._is_greeting_only(line)]
+        meaningful = [
+            line
+            for line in user_lines
+            if line and not self._is_greeting_only(line) and not self._is_edit_meta_message(line)
+        ]
         return ' '.join(meaningful) if meaningful else conversation.strip()
 
     def _extract_hospital(self, conversation: str) -> str:

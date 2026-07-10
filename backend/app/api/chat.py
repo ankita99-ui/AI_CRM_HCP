@@ -15,7 +15,13 @@ router = APIRouter(prefix='/api/chat', tags=['chat'])
 @router.post('', response_model=ChatResponse)
 async def chat(request: ChatRequest, session: AsyncSession = Depends(get_db_session)) -> ChatResponse:
     orchestrator = InteractionOrchestrator(session)
-    result = await orchestrator.process(request.content, request.history, save=request.save)
+    result = await orchestrator.process(
+        request.content,
+        request.history,
+        save=request.save,
+        draft=request.draft,
+        interaction_id=request.interaction_id,
+    )
     extracted = ExtractedInteraction(**result['interaction'])
     save_result = InteractionRead(**result['save_result']) if result.get('save_result') else None
     return ChatResponse(
@@ -31,7 +37,13 @@ async def chat_stream(request: ChatRequest, session: AsyncSession = Depends(get_
     orchestrator = InteractionOrchestrator(session)
 
     async def event_generator():
-        result = await orchestrator.process(request.content, request.history, save=request.save)
+        result = await orchestrator.process(
+        request.content,
+        request.history,
+        save=request.save,
+        draft=request.draft,
+        interaction_id=request.interaction_id,
+    )
         yield f'data: {json.dumps({"type": "token", "content": result["message"]})}\n\n'
         payload = {
             'type': 'complete',

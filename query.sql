@@ -1,0 +1,1 @@
+SELECT * FROM interaction ORDER BY id DESC LIMIT 10;

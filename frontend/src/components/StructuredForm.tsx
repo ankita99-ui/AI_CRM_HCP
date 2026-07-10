@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -6,8 +6,11 @@ import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { createInteraction, setDraft } from '../store/slices/interactionSlice';
 import { addToast } from '../store/slices/uiSlice';
 import { sendChatMessage } from '../store/slices/chatSlice';
-import { loadAutoSaved, useAutoSave } from '../hooks/useAutoSave';
+import { useAutoSave } from '../hooks/useAutoSave';
 import { useVoiceInput } from '../hooks/useVoiceInput';
+import { clearFormDraft, FORM_DRAFT_KEY, getBlankFormValues } from '../utils/formDefaults';
+import { buildFormFromExtracted, getMaterialsFromExtracted, getSamplesFromExtracted } from '../utils/buildFormFromExtracted';
+import { parseStructuredDiscussionNotes } from '../utils/parseDiscussionNotes';
 
 const formSchema = z.object({
   doctor_name: z.string().min(2, 'HCP name is required'),
@@ -27,64 +30,17 @@ const formSchema = z.object({
 
 type FormValues = z.infer<typeof formSchema>;
 
-const now = new Date();
-const defaultDate = now.toISOString().slice(0, 10);
-const defaultTime = now.toTimeString().slice(0, 5);
-
-const defaultValues: FormValues = {
-  doctor_name: '',
-  interaction_type: 'visit',
-  interaction_date: defaultDate,
-  interaction_time: defaultTime,
-  attendees: '',
-  discussion_notes: '',
-  products_discussed: '',
-  samples_distributed: '',
-  sentiment: 'neutral',
-  outcomes: '',
-  follow_up_actions: '',
-  follow_up_date: '',
-  attachments: '',
-};
-
 const labelClass = 'mb-1 block text-sm font-medium text-slate-800 dark:text-slate-200';
 const inputClass =
   'w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#2563eb] dark:border-slate-600 dark:bg-slate-900';
-
-const toDateInputValue = (value?: string | null) => {
-  if (!value) return null;
-  const normalized = String(value).trim();
-  if (/^\d{4}-\d{2}-\d{2}/.test(normalized)) {
-    return normalized.slice(0, 10);
-  }
-  const parsed = new Date(normalized);
-  if (Number.isNaN(parsed.getTime())) return null;
-  return parsed.toISOString().slice(0, 10);
-};
-
-const toTimeInputValue = (value?: string | null) => {
-  if (!value) return null;
-  const normalized = String(value).trim();
-  const twentyFourHour = normalized.match(/^(\d{1,2}):(\d{2})/);
-  if (twentyFourHour) {
-    return `${twentyFourHour[1].padStart(2, '0')}:${twentyFourHour[2]}`;
-  }
-  const twelveHour = normalized.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i);
-  if (!twelveHour) return null;
-  let hour = Number(twelveHour[1]);
-  const minute = twelveHour[2] ?? '00';
-  const meridiem = twelveHour[3].toLowerCase();
-  if (meridiem === 'pm' && hour < 12) hour += 12;
-  if (meridiem === 'am' && hour === 12) hour = 0;
-  return `${String(hour).padStart(2, '0')}:${minute}`;
-};
 
 export const StructuredForm = () => {
   const dispatch = useAppDispatch();
   const saving = useAppSelector((state) => state.interactions.saving);
   const extracted = useAppSelector((state) => state.chat.extracted);
   const nextBestAction = useAppSelector((state) => state.chat.nextBestAction);
-  const persistedDraft = useMemo(() => loadAutoSaved('interaction-form-draft', defaultValues), []);
+  const formResetNonce = useAppSelector((state) => state.ui.formResetNonce);
+  const prevResetNonce = useRef(formResetNonce);
   const [materials, setMaterials] = useState<string[]>([]);
   const [samples, setSamples] = useState<string[]>([]);
 
@@ -99,10 +55,25 @@ export const StructuredForm = () => {
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(formSchema),
-    defaultValues: persistedDraft,
+    defaultValues: getBlankFormValues(),
   });
 
-  useAutoSave('interaction-form-draft', watch());
+  useAutoSave(FORM_DRAFT_KEY, watch());
+
+  const resetFormToBlank = () => {
+    const blank = getBlankFormValues();
+    reset(blank);
+    setMaterials([]);
+    setSamples([]);
+    clearFormDraft();
+    dispatch(setDraft({}));
+  };
+
+  useEffect(() => {
+    if (formResetNonce === prevResetNonce.current) return;
+    prevResetNonce.current = formResetNonce;
+    resetFormToBlank();
+  }, [formResetNonce, reset, dispatch]);
 
   const { isListening, toggleListening, supported } = useVoiceInput((transcript) => {
     const current = getValues('discussion_notes');
@@ -112,52 +83,25 @@ export const StructuredForm = () => {
   useEffect(() => {
     if (!extracted) return;
 
-    const current = getValues();
-    const nextDate = toDateInputValue(extracted.interaction_date) ?? current.interaction_date;
-    const nextTime = toTimeInputValue(extracted.interaction_time) ?? current.interaction_time;
-    const nextFollowUpDate = toDateInputValue(extracted.follow_up_date) ?? current.follow_up_date ?? '';
-    const nextFollowUpActions =
-      extracted.follow_up_actions?.trim() ||
-      (nextBestAction.length ? nextBestAction.join('\n') : '') ||
-      current.follow_up_actions;
-
-    const nextValues: FormValues = {
-      ...current,
-      doctor_name:
-        extracted.doctor_name && extracted.doctor_name !== 'Unknown Doctor'
-          ? extracted.doctor_name
-          : current.doctor_name,
-      discussion_notes: extracted.summary || extracted.discussion_notes || current.discussion_notes,
-      interaction_type: extracted.interaction_type,
-      interaction_date: nextDate,
-      interaction_time: nextTime,
-      products_discussed: extracted.products_discussed.join(', '),
-      follow_up_date: nextFollowUpDate,
-      follow_up_actions: nextFollowUpActions,
-      sentiment: extracted.sentiment ?? current.sentiment,
-      outcomes: extracted.summary || extracted.discussion_notes || current.outcomes,
-    };
+    const parsed = parseStructuredDiscussionNotes(extracted.discussion_notes || '');
+    const nextValues = buildFormFromExtracted(extracted, nextBestAction);
 
     reset(nextValues);
-    setValue('interaction_date', nextDate, { shouldDirty: true, shouldTouch: true, shouldValidate: true });
-    setValue('interaction_time', nextTime, { shouldDirty: true, shouldTouch: true, shouldValidate: true });
-    setValue('follow_up_date', nextFollowUpDate, { shouldDirty: true, shouldTouch: true, shouldValidate: true });
-    setValue('follow_up_actions', nextFollowUpActions, { shouldDirty: true, shouldTouch: true, shouldValidate: true });
-    localStorage.setItem('interaction-form-draft', JSON.stringify(nextValues));
+    setValue('interaction_date', nextValues.interaction_date, { shouldDirty: true, shouldTouch: true, shouldValidate: true });
+    setValue('interaction_time', nextValues.interaction_time, { shouldDirty: true, shouldTouch: true, shouldValidate: true });
+    setValue('follow_up_date', nextValues.follow_up_date, { shouldDirty: true, shouldTouch: true, shouldValidate: true });
+    setValue('follow_up_actions', nextValues.follow_up_actions, { shouldDirty: true, shouldTouch: true, shouldValidate: true });
+    localStorage.setItem(FORM_DRAFT_KEY, JSON.stringify(nextValues));
 
-    const shared = extracted.materials_shared ?? [];
-    const materialItems = shared.filter((item) => item !== 'Samples');
-    const sampleItems = shared.filter((item) => item === 'Samples');
-    setMaterials(materialItems);
-    if (sampleItems.length) {
-      setSamples(sampleItems);
-      setValue('samples_distributed', sampleItems.join(', '), {
-        shouldDirty: true,
-        shouldTouch: true,
-        shouldValidate: true,
-      });
-    }
-  }, [extracted, nextBestAction, getValues, reset, setValue]);
+    setMaterials(getMaterialsFromExtracted(extracted, parsed.materials));
+    const sampleItems = getSamplesFromExtracted(extracted, parsed.samples);
+    setSamples(sampleItems);
+    setValue('samples_distributed', sampleItems.join(', '), {
+      shouldDirty: true,
+      shouldTouch: true,
+      shouldValidate: true,
+    });
+  }, [extracted, nextBestAction, reset, setValue]);
 
   const onSubmit = async (values: FormValues) => {
     const discussionNotes = [
@@ -193,8 +137,14 @@ export const StructuredForm = () => {
     if (createInteraction.fulfilled.match(result)) {
       dispatch(addToast('success', 'Interaction saved', 'The HCP interaction was stored successfully.'));
     } else {
-      dispatch(addToast('error', 'Save failed', result.error.message));
+      dispatch(addToast('error', 'Save failed', result.error.message ?? 'Could not save interaction.'));
     }
+  };
+
+  const onInvalid = () => {
+    dispatch(
+      addToast('error', 'Save failed', 'Please check HCP name and topics discussed — both are required.'),
+    );
   };
 
   const onVoiceSummarize = async () => {
@@ -229,7 +179,7 @@ Follow-up Date: ${values.follow_up_date}`,
   };
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+    <form onSubmit={handleSubmit(onSubmit, onInvalid)} className="space-y-5">
       <h2 className="mb-4 text-[1.35rem] font-bold text-slate-900 dark:text-white">Log HCP Interaction</h2>
 
       <div className="grid gap-4 md:grid-cols-2">
@@ -276,6 +226,15 @@ Follow-up Date: ${values.follow_up_date}`,
       <label className={labelClass}>
         Attendees
         <input {...register('attendees')} className={inputClass} placeholder="Enter names or search..." />
+      </label>
+
+      <label className={labelClass}>
+        Products Discussed
+        <input
+          {...register('products_discussed')}
+          className={inputClass}
+          placeholder="e.g. Product X, Product Y"
+        />
       </label>
 
       <label className={labelClass}>
@@ -396,7 +355,6 @@ Follow-up Date: ${values.follow_up_date}`,
         </div>
       </div>
 
-      <input type="hidden" {...register('products_discussed')} />
       <input type="hidden" {...register('samples_distributed')} />
       <input type="hidden" {...register('attachments')} />
 

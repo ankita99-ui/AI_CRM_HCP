@@ -1,7 +1,9 @@
 from langgraph.graph import END, StateGraph
+import re
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.graphs.state import InteractionGraphState
+from app.schemas.interaction import ExtractedInteraction
 from app.schemas.email import EmailRequest
 from app.tools.edit_interaction_tool import EditInteractionTool
 from app.tools.generate_followup_email_tool import GenerateFollowUpEmailTool
@@ -15,6 +17,19 @@ def _append_tool(state: InteractionGraphState, tool_name: str) -> list[str]:
     if tool_name not in used:
         used.append(tool_name)
     return used
+
+
+def _extract_hcp_search_query(message: str) -> str:
+    cleaned = message.strip()
+    patterns = [
+        r'^(?:search\s+hcp|find\s+(?:doctor|hcp)|search\s+doctor)\s+(.+)$',
+        r'^(?:search|find)\s+(.+)$',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, cleaned, re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+    return cleaned
 
 
 def build_interaction_graph(session: AsyncSession):
@@ -35,14 +50,17 @@ def build_interaction_graph(session: AsyncSession):
             intent = 'search_hcp'
         elif any(token in conversation for token in ['follow-up email', 'follow up email', 'draft email', 'write email']):
             intent = 'generate_email'
-        elif any(token in conversation for token in ['change ', 'update ', 'edit ', 'modify ']):
+        elif any(token in conversation for token in ['change ', 'update ', 'edit ', 'modify ', 'add to the interaction', 'add this to the interaction', 'please add this to the interaction', 'also mention', 'please also note', 'change the name', 'change name', 'wrong doctor', 'why dr', 'not dr']):
+            intent = 'edit_interaction'
+        elif re.search(r'follow[- ]?up date', conversation):
             intent = 'edit_interaction'
         state['intent'] = intent
         state['tools_used'] = _append_tool(state, 'intent_detection')
         return state
 
     async def search_hcp_node(state: InteractionGraphState) -> InteractionGraphState:
-        query = state.get('doctor') or state.get('latest_user_message', state['conversation'])
+        instruction = state.get('latest_user_message', state['conversation'])
+        query = _extract_hcp_search_query(instruction)
         results = await search_tool.run(query)
         state['hcp_results'] = [item.model_dump(mode='json') for item in results]
         state['tools_used'] = _append_tool(state, 'search_hcp')
@@ -112,18 +130,70 @@ def build_interaction_graph(session: AsyncSession):
         return state
 
     async def edit_interaction_node(state: InteractionGraphState) -> InteractionGraphState:
+        conversation = state.get('conversation', '')
+        instruction = state.get('latest_user_message', conversation)
+        doctor_name = edit_tool.resolve_doctor_name(
+            instruction,
+            conversation,
+            state.get('doctor'),
+        )
+
+        if not edit_tool.has_editable_changes(instruction):
+            state['tools_used'] = _append_tool(state, 'edit_interaction')
+            state['response_message'] = (
+                'Tell me what to update, for example: **Change the follow-up date to next Monday** '
+                'or **Change the name to Dr. Neha Kulkarni**.'
+            )
+            return state
+
+        current_extracted = state.get('current_extracted')
+        if current_extracted:
+            extracted = (
+                ExtractedInteraction(**current_extracted)
+                if isinstance(current_extracted, dict)
+                else current_extracted
+            )
+        else:
+            extracted, _ = await log_tool.run(conversation, save=False)
+
+        corrected_name = edit_tool._extract_name_correction(instruction, conversation)
+        if corrected_name:
+            extracted.doctor_name = corrected_name
+        elif doctor_name and extracted.doctor_name in {'', 'Unknown Doctor'}:
+            extracted.doctor_name = doctor_name
+
+        extracted = edit_tool.apply_instruction_to_extracted(extracted, instruction)
+        state['extracted'] = extracted
+
         updated = await edit_tool.run(
-            state.get('latest_user_message', state['conversation']),
+            instruction,
             interaction_id=state.get('interaction_id'),
-            doctor_name=state.get('doctor'),
+            doctor_name=extracted.doctor_name or doctor_name,
+            conversation=conversation,
         )
         state['tools_used'] = _append_tool(state, 'edit_interaction')
+
         if updated:
             state['save_result'] = updated.model_dump(mode='json')
-            state['response_message'] = f'✅ Updated interaction #{updated.id} successfully.'
+            change_summary = edit_tool.describe_update(extracted, instruction)
+            state['response_message'] = (
+                f'✅ Updated interaction #{updated.id} for {updated.doctor_name}: {change_summary}.'
+            )
+            return state
+
+        change_summary = edit_tool.describe_update(extracted, instruction)
+        follow_up_label = extracted.follow_up_date.strftime('%d-%m-%Y') if extracted.follow_up_date else None
+        display_name = extracted.doctor_name or doctor_name or 'your HCP'
+        if follow_up_label:
+            state['response_message'] = (
+                f'✅ Updated the interaction draft for **{display_name}**. '
+                f'Updated {change_summary}. '
+                'Click **Save** on the form to store it in the database.'
+            )
         else:
             state['response_message'] = (
-                'I could not find an interaction to update. Please log one first or specify the HCP name.'
+                f'✅ Updated the interaction draft for **{display_name}**. '
+                f'Updated {change_summary}. Click **Save** on the form to store it in the database.'
             )
         return state
 
@@ -143,8 +213,13 @@ def build_interaction_graph(session: AsyncSession):
         if intent == 'search_hcp':
             matches = state.get('hcp_results') or []
             if matches:
-                names = ', '.join(item.get('doctor_name', '') for item in matches[:5])
-                state['response_message'] = f'Found matching HCP records: {names}'
+                lines = [
+                    f"- **{item.get('doctor_name', '')}** ({item.get('hospital', 'N/A')}, {item.get('speciality', 'N/A')})"
+                    for item in matches[:5]
+                ]
+                state['response_message'] = (
+                    f'Found **{len(matches)}** matching HCP record(s):\n' + '\n'.join(lines)
+                )
             else:
                 state['response_message'] = 'No matching HCP records were found.'
             return state

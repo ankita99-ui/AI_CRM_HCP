@@ -20,12 +20,12 @@ class Settings(BaseSettings):
     app_env: str = 'development'
     backend_host: str = '0.0.0.0'
     backend_port: int = 8000
-    cors_origins: List[str] | str = Field(default=['http://localhost:5173'])
+    cors_origins: List[str] | str = Field(default=['http://localhost:5173', 'http://127.0.0.1:5173'])
 
     database_url: str = 'postgresql+asyncpg://postgres:postgres@localhost:5432/ai_crm_hcp'
 
     groq_api_key: str = ''
-    groq_model: str = 'gemma2-9b-it'
+    groq_model: str = 'llama-3.1-8b-instant'
 
     @field_validator('cors_origins', mode='before')
     @classmethod
@@ -38,3 +38,8 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+def reload_settings() -> Settings:
+    get_settings.cache_clear()
+    return get_settings()

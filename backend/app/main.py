@@ -4,13 +4,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
-from app.core.config import get_settings
+from app.core.config import get_settings, reload_settings
 from app.core.logging import configure_logging
 from app.database.seed import seed_database
 from app.database.session import AsyncSessionLocal, engine
 from app.models import Base
 
-settings = get_settings()
+settings = reload_settings()
 configure_logging()
 
 
@@ -30,13 +30,18 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origins,
-    allow_credentials=True,
-    allow_methods=['*'],
-    allow_headers=['*'],
-)
+cors_kwargs: dict = {
+    'allow_credentials': True,
+    'allow_methods': ['*'],
+    'allow_headers': ['*'],
+}
+if settings.app_env == 'development':
+    # Allow localhost and 127.0.0.1 on any dev port (Vite may use either hostname).
+    cors_kwargs['allow_origin_regex'] = r'https?://(localhost|127\.0\.0\.1)(:\d+)?'
+else:
+    cors_kwargs['allow_origins'] = settings.cors_origins
+
+app.add_middleware(CORSMiddleware, **cors_kwargs)
 
 
 @app.get('/health', tags=['health'])

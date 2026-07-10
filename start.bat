@@ -46,8 +46,16 @@ if errorlevel 1 (
 )
 
 echo.
-echo Starting backend on http://localhost:8000 ...
-start "AI-CRM Backend" cmd /k "cd /d ""%~dp0backend"" && .\.venv\Scripts\uvicorn.exe app.main:app --reload --host 0.0.0.0 --port 8000"
+echo Stopping any existing servers on ports 8001 and 5173 ...
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8001" ^| findstr "LISTENING"') do taskkill /F /PID %%a >nul 2>&1
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":5173" ^| findstr "LISTENING"') do taskkill /F /PID %%a >nul 2>&1
+for /f "tokens=2" %%a in ('tasklist /FI "IMAGENAME eq python.exe" /FO LIST ^| findstr /I "PID:"') do (
+  wmic process where "ProcessId=%%a" get CommandLine 2>nul | findstr /I "uvicorn app.main:app" >nul && taskkill /F /PID %%a >nul 2>&1
+)
+
+echo.
+echo Starting backend on http://localhost:8001 ...
+start "AI-CRM Backend" cmd /k "cd /d ""%~dp0backend"" && .\.venv\Scripts\uvicorn.exe app.main:app --reload --host 0.0.0.0 --port 8001"
 
 timeout /t 4 /nobreak >nul 2>nul
 if errorlevel 1 ping 127.0.0.1 -n 5 >nul
@@ -63,8 +71,8 @@ echo.
 echo ============================================
 echo   Project started
 echo   Frontend: http://localhost:5173
-echo   Backend:  http://localhost:8000
-echo   API Docs: http://localhost:8000/docs
+echo   Backend:  http://localhost:8001
+echo   API Docs: http://localhost:8001/docs
 echo ============================================
 echo.
 echo Two terminal windows were opened for backend and frontend.

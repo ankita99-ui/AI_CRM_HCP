@@ -19,6 +19,8 @@ class InteractionOrchestrator:
         content: str,
         history: list[ChatHistoryMessage] | None = None,
         save: bool = False,
+        draft: ExtractedInteraction | None = None,
+        interaction_id: int | None = None,
     ) -> dict:
         history = history or []
         conversation = self.assistant._build_conversation(history, content)
@@ -36,6 +38,9 @@ class InteractionOrchestrator:
                 'latest_user_message': self.assistant._latest_user_message(conversation),
                 'content': content,
                 'save': save,
+                'current_extracted': draft.model_dump(mode='json') if draft else None,
+                'interaction_id': interaction_id,
+                'doctor': draft.doctor_name if draft and draft.doctor_name not in {'', 'Unknown Doctor'} else None,
             }
         )
 
@@ -54,6 +59,19 @@ class InteractionOrchestrator:
             return self._result(reply, extracted, [], saved)
 
         next_actions = graph_state.get('next_best_action') or []
+
+        if graph_state.get('intent') == 'edit_interaction':
+            extracted = graph_state.get('extracted') or extracted
+            if isinstance(extracted, dict):
+                extracted = ExtractedInteraction(**extracted)
+            self.assistant._apply_defaults(extracted)
+            reply = graph_state.get('response_message') or 'Interaction update completed.'
+            return self._result(reply, extracted, next_actions, graph_state.get('save_result'))
+
+        if graph_state.get('intent') == 'search_hcp':
+            reply = graph_state.get('response_message') or 'No matching HCP records were found.'
+            return self._result(reply, extracted, next_actions, None)
+
         if next_actions and not extracted.follow_up_actions and extracted.sentiment != 'negative':
             extracted.follow_up_actions = next_actions[0]
         elif extracted.sentiment == 'negative' and not extracted.follow_up_actions:
@@ -64,14 +82,6 @@ class InteractionOrchestrator:
         if not missing and graph_state.get('intent') != 'search_hcp':
             reply = graph_state.get('response_message') or self.assistant._build_success_reply(extracted)
             extracted.status = 'populated'
-            return self._result(reply, extracted, next_actions, graph_state.get('save_result'))
-
-        if graph_state.get('intent') == 'search_hcp':
-            reply = graph_state.get('response_message') or 'No matching HCP records were found.'
-            return self._result(reply, extracted, next_actions, None)
-
-        if graph_state.get('intent') == 'edit_interaction':
-            reply = graph_state.get('response_message') or 'Interaction update completed.'
             return self._result(reply, extracted, next_actions, graph_state.get('save_result'))
 
         if graph_state.get('intent') == 'generate_email' and graph_state.get('email_draft'):

@@ -1,6 +1,7 @@
 import { createAsyncThunk, createSlice, nanoid, PayloadAction } from '@reduxjs/toolkit';
 import { chatService } from '../../services/chatService';
 import { ChatMessage, ChatResponse } from '../../types';
+import { isChatEditIntent } from '../../utils/chatIntent';
 
 export const CHAT_WELCOME_MESSAGE =
   "Log interaction details here (e.g., 'Met an HCP, discussed product efficacy, positive sentiment, shared brochure') or ask for help.";
@@ -29,16 +30,22 @@ const initialState: ChatState = {
 export const sendChatMessage = createAsyncThunk(
   'chat/send',
   async (payload: { content: string; save?: boolean }, { getState }) => {
-    const history = getState().chat.messages
+    const state = getState() as { chat: ChatState };
+    const history = state.chat.messages
       .filter((message) => message.content.trim())
       .map((message) => ({ role: message.role, content: message.content }));
-    return chatService.send({ ...payload, history });
+    return chatService.send({
+      ...payload,
+      history,
+      draft: isChatEditIntent(payload.content) ? state.chat.extracted : null,
+    });
   },
 );
 export const streamChatMessage = createAsyncThunk(
   'chat/stream',
   async (payload: { content: string; save?: boolean }, { dispatch, getState }) => {
-    const history = getState().chat.messages
+    const state = getState() as { chat: ChatState };
+    const history = state.chat.messages
       .filter((message) => message.content.trim())
       .map((message) => ({ role: message.role, content: message.content }));
     const assistantId = nanoid();
@@ -51,9 +58,16 @@ export const streamChatMessage = createAsyncThunk(
       }),
     );
 
-    return chatService.stream({ ...payload, history }, (token) => {
-      dispatch(appendAssistantToken({ id: assistantId, token }));
-    });
+    return chatService.stream(
+      {
+        ...payload,
+        history,
+        draft: isChatEditIntent(payload.content) ? state.chat.extracted : null,
+      },
+      (token) => {
+        dispatch(appendAssistantToken({ id: assistantId, token }));
+      },
+    );
   },
 );
 

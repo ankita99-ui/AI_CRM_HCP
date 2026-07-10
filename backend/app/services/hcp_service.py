@@ -1,3 +1,5 @@
+import re
+
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -7,13 +9,42 @@ from app.schemas.hcp import HCPRead
 
 
 class HCPService:
+    SEARCH_PREFIX = re.compile(
+        r'^(?:search\s+hcp|find\s+(?:doctor|hcp)|search\s+doctor|search|find)\s+',
+        re.IGNORECASE,
+    )
+
     def __init__(self, session: AsyncSession):
         self.session = session
 
+    def _normalize_search_query(self, query: str) -> str:
+        cleaned = self.SEARCH_PREFIX.sub('', query.strip()).strip()
+        cleaned = re.sub(r'^dr\.?\s*', '', cleaned, flags=re.IGNORECASE).strip()
+        return cleaned
+
+    def _search_tokens(self, query: str) -> list[str]:
+        normalized = self._normalize_search_query(query).lower()
+        stop_words = {'dr', 'doctor', 'hcp', 'the', 'a', 'an', 'at', 'in', 'on', 'for'}
+        return [token for token in re.split(r'[\s,]+', normalized) if token and token not in stop_words]
+
     async def search(self, query: str) -> list[HCPRead]:
         stmt = select(HCP)
-        if query:
-            like_query = f'%{query.lower()}%'
+        tokens = self._search_tokens(query)
+        normalized = self._normalize_search_query(query)
+
+        if tokens:
+            for token in tokens:
+                like_query = f'%{token}%'
+                stmt = stmt.where(
+                    or_(
+                        func.lower(HCP.doctor_name).like(like_query),
+                        func.lower(HCP.hospital).like(like_query),
+                        func.lower(HCP.speciality).like(like_query),
+                        func.lower(func.coalesce(HCP.city, '')).like(like_query),
+                    )
+                )
+        elif normalized:
+            like_query = f'%{normalized.lower()}%'
             stmt = stmt.where(
                 or_(
                     func.lower(HCP.doctor_name).like(like_query),

@@ -4,14 +4,18 @@ import { nanoid } from '@reduxjs/toolkit';
 import { useVoiceInput } from '../hooks/useVoiceInput';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { pushMessage, streamChatMessage, clearConversation } from '../store/slices/chatSlice';
-import { addToast, toggleDarkMode } from '../store/slices/uiSlice';
+import { addToast, resetInteractionForm, toggleDarkMode } from '../store/slices/uiSlice';
 import { ChatMessage } from '../types';
 
 const getMessageStyle = (message: ChatMessage) => {
   if (message.role === 'user') {
     return 'border border-slate-200 bg-slate-100 text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100';
   }
-  if (message.content.includes('✅') || message.content.toLowerCase().includes('interaction logged successfully')) {
+  if (
+    message.content.includes('✅')
+    || message.content.toLowerCase().includes('interaction logged successfully')
+    || message.content.toLowerCase().includes('updated interaction')
+  ) {
     return 'border border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-100';
   }
   return 'border border-sky-200 bg-sky-50 text-slate-800 dark:border-sky-900 dark:bg-sky-950 dark:text-slate-100';
@@ -44,6 +48,7 @@ export const ChatPanel = () => {
   const onClearChat = () => {
     if (!hasConversation || loading) return;
     dispatch(clearConversation());
+    dispatch(resetInteractionForm());
     setInput('');
     dispatch(addToast('info', 'Chat cleared', 'You can start a new interaction log.'));
   };

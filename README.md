@@ -72,9 +72,9 @@ AI-CRM-HCP/
 
 ---
 
-## Mock UI Preview
+## demo
+![AI CRM Demo](assets/ai_crm_demo.gif)
 
-See `docs/mock-ui.md` for ASCII mock screenshots of the dashboard, structured form, and chat experience.
 
 ---
 
